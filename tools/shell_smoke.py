@@ -18,7 +18,7 @@ import tempfile
 from package import stage
 
 ROOT = Path(__file__).resolve().parent.parent
-UUID = 'twingate-panel@urhend'
+UUID = json.loads((ROOT / 'metadata.json').read_text())['uuid']
 PROBE = 'twingate-panel-probe@test'
 KEYFILE = f"""[org/gnome/shell]
 enabled-extensions=['{UUID}', '{PROBE}']

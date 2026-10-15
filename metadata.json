@@ -1,13 +1,13 @@
 {
   "description": "Private access, at home in GNOME. Quick Settings, pause/resume, searchable favorites, account switching, and resource actions for the official Twingate Linux client.\n\nFork maintained by aheinze. Originally created by urhend: https://github.com/urhend/twingate-panel\n\nCommunity extension, not affiliated with Twingate.",
-  "name": "Twingate Panel",
+  "name": "Twingate Quick Access",
   "settings-schema": "org.gnome.shell.extensions.twingate-panel",
   "shell-version": [
     "50",
     "51"
   ],
-  "url": "https://github.com/aheinze/twingate-panel",
-  "uuid": "twingate-panel@urhend",
-  "version": 14,
-  "version-name": "2.0.5"
+  "url": "https://github.com/aheinze/twingate-quick-access",
+  "uuid": "twingate-quick-access@aheinze.github.io",
+  "version": 15,
+  "version-name": "2.0.6"
 }

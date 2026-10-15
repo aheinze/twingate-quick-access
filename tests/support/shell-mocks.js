@@ -107,7 +107,7 @@ export const MessageTray = {Source: class extends Actor {}, Action: class {
 }};
 export class Extension {
     constructor() {
-        this.uuid = 'twingate-panel@urhend'; this.metadata = {'version-name': 'test'};
+        this.uuid = 'twingate-quick-access@aheinze.github.io'; this.metadata = {name: 'Twingate Quick Access', 'version-name': 'test'};
         this.dir = {resolve_relative_path: path => ({path})};
     }
     getSettings() { return settings; }

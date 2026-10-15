@@ -1,5 +1,5 @@
 // Test-only driver for tools/shell_smoke.py. Runs inside an isolated headless GNOME Shell,
-// operates the real Twingate Panel menus, and reports results as `TPPROBE <key> <json>` lines.
+// operates the real Twingate Quick Access menus, and reports results as `TPPROBE <key> <json>` lines.
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
@@ -8,11 +8,11 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 
-const UUID = 'twingate-panel@urhend';
+const UUID = 'twingate-quick-access@aheinze.github.io';
 const SHOTS = GLib.getenv('TP_SHOTS');
 const LIVE_ACTIONS = GLib.getenv('TP_LIVE_ACTIONS') === '1';
 
-// Disabling Twingate Panel also disables and re-enables the extensions enabled after it,
+// Disabling Twingate Quick Access also disables and re-enables the extensions enabled after it,
 // including this probe. The module stays loaded, so this keeps the run from starting twice.
 let started = false;
 
@@ -58,7 +58,7 @@ async function run() {
     const extension = Main.extensionManager.lookup(UUID);
     out('extension', {state: extension?.state, error: extension?.error ?? ''});
     if (!tp?._controller)
-        throw new Error('Twingate Panel did not enable');
+        throw new Error('Twingate Quick Access did not enable');
     const controller = tp._controller;
     // While one top-bar menu is open, hovering another top-bar button opens that one instead.
     // Keep the pointer off every top-bar button; the headless Shell can report it at y=0.

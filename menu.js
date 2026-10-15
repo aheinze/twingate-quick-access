@@ -208,7 +208,7 @@ export class MenuContent {
         this.menu.addMenuItem(this._advanced);
 
         const footer = box('tp-footer');
-        this._footerLabel = label('Twingate Panel', 'tp-caption');
+        this._footerLabel = label('Twingate Quick Access', 'tp-caption');
         footer.add_child(this._footerLabel);
         this._refreshButton = this._iconButton('view-refresh-symbolic', 'Refresh connection and resources', () => {
             this._notice = '';

@@ -230,7 +230,7 @@ export default class TwingatePanelExtension extends Extension {
     _copyDiagnostics() {
         const state = this._controller.state;
         const text = [
-            `Twingate Panel ${this.metadata['version-name']}`,
+            `${this.metadata.name} ${this.metadata['version-name']}`,
             `GNOME ${Config.PACKAGE_VERSION}`,
             `Client: ${state.version || 'unavailable'}`,
             `State: ${state.status}`,

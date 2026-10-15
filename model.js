@@ -43,7 +43,7 @@ function table(output, aliases, required) {
     for (const [field, names] of Object.entries(aliases))
         columns[field] = header.findIndex(h => names.includes(h));
     if (required.some(key => columns[key] < 0))
-        throw new Error('The client returned an unrecognized table format. Update Twingate Panel or report this client version.');
+        throw new Error('The client returned an unrecognized table format. Update Twingate Quick Access or report this client version.');
     return lines.slice(1).filter(l => !/^[-─+\s]+$/.test(l)).map(line => {
         const fields = split(line);
         if (required.some(key => !fields[columns[key]]))

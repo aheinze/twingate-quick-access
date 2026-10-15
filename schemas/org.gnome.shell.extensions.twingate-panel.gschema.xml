@@ -15,7 +15,7 @@
     <key name="resource-authentication-popups" type="b">
       <default>true</default>
       <summary>Show resource authentication popups</summary>
-      <description>Show banners for the official twingate-notifier's Additional authentication required requests. When disabled, requests and their Authenticate action remain in the notification list. Account sign-in prompts and other notifications are unaffected. Applies while Twingate Panel is enabled.</description>
+      <description>Show banners for the official twingate-notifier's Additional authentication required requests. When disabled, requests and their Authenticate action remain in the notification list. Account sign-in prompts and other notifications are unaffected. Applies while Twingate Quick Access is enabled.</description>
     </key>
     <key name="ping-enabled" type="b">
       <default>false</default>

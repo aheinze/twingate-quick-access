@@ -7,9 +7,10 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from package import stage
+from package import ROOT, stage
 
-UUID = 'twingate-panel@urhend'
+METADATA = json.loads((ROOT / 'metadata.json').read_text())
+UUID = METADATA['uuid']
 
 
 def install(restore=None):
@@ -18,14 +19,14 @@ def install(restore=None):
     if destination.is_symlink():
         raise SystemExit('The installed extension is a symlink. Update its source checkout instead.')
     destination.parent.mkdir(parents=True, exist_ok=True)
-    state = home / '.local/share/twingate-panel'
+    state = home / '.local/share/twingate-quick-access'
     backup = state / 'backups' / datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     staged = Path(tempfile.mkdtemp(prefix='.twingate-stage-', dir=destination.parent))
     try:
         if restore:
             source = Path(restore).resolve()
             if json.loads((source / 'metadata.json').read_text()).get('uuid') != UUID:
-                raise SystemExit('Backup UUID does not match Twingate Panel.')
+                raise SystemExit(f"Backup UUID does not match {METADATA['name']}.")
             shutil.copytree(source, staged, dirs_exist_ok=True)
         else:
             stage(staged)

@@ -35,12 +35,15 @@ def build(gnome51=False):
     output.mkdir(exist_ok=True)
     version = json.loads((ROOT / 'metadata.json').read_text())['version-name']
     suffix = '-gnome51-unverified' if gnome51 else ''
-    archive = output / f'twingate-panel-{version}{suffix}.shell-extension.zip'
+    archive = output / f'twingate-quick-access-{version}{suffix}.shell-extension.zip'
     with tempfile.TemporaryDirectory(prefix='twingate-package-') as temp:
         source = Path(temp)
         stage(source, gnome51)
         with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as bundle:
             for path in sorted(p for p in source.rglob('*') if p.is_file()):
+                # GNOME compiles schemas on installation; the store ZIP contains sources.
+                if path.name == 'gschemas.compiled':
+                    continue
                 info = zipfile.ZipInfo(path.relative_to(source).as_posix(), (2026, 1, 1, 0, 0, 0))
                 info.external_attr = 0o100644 << 16
                 info.compress_type = zipfile.ZIP_DEFLATED

@@ -1,10 +1,12 @@
-# Twingate Panel 2.0
+# Twingate Quick Access
 
 Private access, at home in GNOME. A community interface for the official Twingate Linux client.
 
-This fork is maintained by [aheinze](https://github.com/aheinze) at [aheinze/twingate-panel](https://github.com/aheinze/twingate-panel). Based on [Twingate Panel 1.0.6 by urhend](https://github.com/urhend/twingate-panel), the original author.
+This fork is maintained by [aheinze](https://github.com/aheinze) at [aheinze/twingate-quick-access](https://github.com/aheinze/twingate-quick-access). Based on [Twingate Panel 1.0.6 by urhend](https://github.com/urhend/twingate-panel), the original author.
 
 Not affiliated with or endorsed by Twingate Inc. The Twingate name and logo are trademarks of Twingate Inc. and identify the client this extension controls. The original GPL-3.0-or-later license applies.
+
+![Twingate Quick Access in GNOME Quick Settings, showing connection status and example resource shortcuts](screenshots/quick-settings.png)
 
 ## Features
 
@@ -50,7 +52,9 @@ The official client must already be installed and configured. This extension doe
 python3 tools/install.py
 ```
 
-The installer backs up the existing extension under `~/.local/share/twingate-panel/backups/`, stages the new files, and records the backup path in `~/.local/share/twingate-panel/last-install.json`. Preferences are preserved. Log out and back in to load the new code. The installer does not restart your desktop or network connection.
+The installer backs up the existing extension under `~/.local/share/twingate-quick-access/backups/`, stages the new files, and records the backup path in `~/.local/share/twingate-quick-access/last-install.json`. Preferences are preserved. Log out and back in to load the new code. The installer does not restart your desktop or network connection.
+
+The extension ID is `twingate-quick-access@aheinze.github.io`. When moving from Twingate Panel, enable **Twingate Quick Access** and disable **Twingate Panel** in GNOME Extensions after logging back in. Existing preferences use the same settings schema and carry over automatically.
 
 To restore a previous version:
 
@@ -92,6 +96,12 @@ npm run build
 ZIP files and SHA-256 checksums are written to `dist/`. Builds use sorted files and fixed timestamps, and download nothing.
 
 ## Changelog
+
+### 2.0.6
+
+- Renamed the fork to Twingate Quick Access, with its own extension ID and repository, while retaining credit to urhend, the original author of Twingate Panel.
+- Updated preferences, diagnostics, installation, and packaging for the new identity. Existing settings remain compatible.
+- Distribution ZIPs contain the schema source; the local installer still compiles it before installation.
 
 ### 2.0.5
 

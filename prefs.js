@@ -103,7 +103,7 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
         window.connect('close-request', () => { settings.disconnect(linksChanged); return false; });
         renderLinks();
 
-        const about = new Adw.PreferencesGroup({title: `Twingate Panel ${this.metadata['version-name']}`,
+        const about = new Adw.PreferencesGroup({title: `${this.metadata.name} ${this.metadata['version-name']}`,
             description: 'A community interface for the official Twingate Linux client. Not affiliated with or endorsed by Twingate. Your existing client manages credentials and network policy.'});
         page.add(about);
         const help = new Adw.ActionRow({title: 'Setup and troubleshooting', subtitle: 'Official Twingate Linux documentation'});
