@@ -1,5 +1,5 @@
 {
-  "description": "Private access, at home in GNOME. Quick Settings, pause/resume, searchable favorites, account switching, and resource actions for the official Twingate Linux client.\n\nFork maintained by aheinze. Originally created by urhend: https://github.com/urhend/twingate-panel\n\nCommunity extension, not affiliated with Twingate.",
+  "description": "Private access, at home in GNOME. Quick Settings, pause/resume, searchable favorites, account switching, and resource actions for the official Twingate Linux client.\n\nCopies resource addresses and diagnostics to the clipboard when you select those actions. Does not read clipboard contents.\n\nFork maintained by aheinze. Originally created by urhend: https://github.com/urhend/twingate-panel\n\nCommunity extension, not affiliated with Twingate.",
   "name": "Twingate Quick Access",
   "settings-schema": "org.gnome.shell.extensions.twingate-panel",
   "shell-version": [
