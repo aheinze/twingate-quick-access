@@ -86,6 +86,8 @@ def check(log, live_actions):
            f"closing the menu left a tooltip behind: {results.get('tooltip-closed')}")
     expect(results.get('tooltip-disabled') == {'destroyed': True, 'timer': 0},
            f"disabling did not clean up tooltips: {results.get('tooltip-disabled')}")
+    expect(results.get('lifecycle-destroyed') == dict.fromkeys(['panel', 'indicator', 'toggle', 'menu', 'scroll'], 1),
+           f"disabling did not destroy every owned actor exactly once: {results.get('lifecycle-destroyed')}")
     click = results.get('account-click', {})
     if click.get('accounts') == 1:
         expect(click.get('acts') == [], f'selecting the account in use switched accounts: {click}')

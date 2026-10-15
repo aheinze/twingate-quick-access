@@ -97,6 +97,12 @@ ZIP files and SHA-256 checksums are written to `dist/`. Builds use sorted files 
 
 ## Changelog
 
+### 2.0.7
+
+- Fixed: Disabling the extension now destroys the Quick Settings dropdown and scroll container in GNOME's shared overlay, as well as the tile and panel indicator.
+- Menu and allocation signals are disconnected before teardown, and owned references are released explicitly.
+- Tests: Corrected the Quick Settings mock and added a real GNOME Shell check that every owned actor is destroyed exactly once.
+
 ### 2.0.6
 
 - Renamed the fork to Twingate Quick Access, with its own extension ID and repository, while retaining credit to urhend, the original author of Twingate Panel.

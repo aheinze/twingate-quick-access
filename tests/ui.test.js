@@ -403,9 +403,15 @@ test('extension enable/disable cycles remove timers, monitor signals, and settin
         await new Promise(resolve => setImmediate(resolve));
         assert.equal(extension._views.length, 2);
         const panel = extension._panel, quick = extension._quick;
+        const toggle = quick.toggle, menu = toggle.menu, scroll = extension._quickScroll;
         extension.disable();
         await new Promise(resolve => setImmediate(resolve));
         assert.ok(panel.destroyed && quick.destroyed);
+        assert.ok(toggle.destroyed && menu.actor.destroyed && scroll.destroyed);
+        assert.equal(quick.toggle, null);
+        assert.deepEqual(quick.quickSettingsItems, []);
+        for (const name of ['_quick', '_quickScroll', '_panel', '_controller', '_client', '_settings', '_network', '_quickSettingsMenu', '_logo'])
+            assert.equal(extension[name], null, `${name} was retained after disable`);
         assert.equal(extensionSettings.signals.size, 0);
         assert.equal(network.signals.size, 0);
         assert.equal(stage.signals.size, 0);

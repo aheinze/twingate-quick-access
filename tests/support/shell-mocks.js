@@ -11,7 +11,8 @@ export class Actor {
     emit(name, ...args) { for (const signal of [...this.signals.values()]) if (signal.name === name) signal.callback(this, ...args); }
     add_child(child) { this.children.push(child); child.parent = this; }
     remove_child(child) { this.children = this.children.filter(c => c !== child); child.parent = null; }
-    set_child(child) { this.child = child; this.children = []; this.add_child(child); }
+    set_child(child) { for (const old of this.children) old.parent = null;
+        this.child = child; this.children = []; if (child) this.add_child(child); }
     get_children() { return this.children; }
     get_child_at_index(i) { return this.children[i]; }
     set_child_at_index(child, i) { this.children = this.children.filter(c => c !== child); this.children.splice(i, 0, child); }
@@ -49,7 +50,7 @@ export class Menu {
     removeAll() { for (const item of this.items) item.destroy(); this.items = []; }
     close() { this.isOpen = false; this.signals.emit('open-state-changed', false); }
     open() { this.isOpen = true; this.signals.emit('open-state-changed', true); }
-    connect(...args) { return this.signals.connect(...args); }
+    connect(name, callback) { return this.signals.connect(name, (_signals, ...args) => callback(this, ...args)); }
     disconnect(id) { this.signals.disconnect(id); }
     destroy() { this.removeAll(); this.actor.destroy(); this.signals.destroy(); }
 }
@@ -73,8 +74,9 @@ class SystemIndicator extends Actor {
     _init() { super._init(); this.quickSettingsItems = []; }
     _addIndicator() { const icon = new Actor(); this.add_child(icon); return icon; }
 }
-export const QuickSettings = {SystemIndicator, QuickMenuToggle: class extends PanelButton {
-    _init(props) { super._init(); Object.assign(this, props); this.height = 48; this.menu.sourceActor = this; }
+// Unlike PanelMenu.Button, destroying QuickMenuToggle does not destroy its menu.
+export const QuickSettings = {SystemIndicator, QuickMenuToggle: class extends Actor {
+    _init(props) { super._init(props); this.menu = new Menu(); this.height = 48; this.menu.sourceActor = this; }
 }};
 export const GObject = {registerClass: cls => cls};
 export class Settings extends Actor {

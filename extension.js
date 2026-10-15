@@ -37,8 +37,13 @@ const QuickIndicator = GObject.registerClass(class TwingateQuickIndicator extend
         this.quickSettingsItems.push(this.toggle);
     }
     destroy() {
-        this.quickSettingsItems.forEach(item => item.destroy());
+        // GNOME parents the dropdown under its shared overlay, not under the tile.
+        this.toggle.menu.destroy();
+        this.toggle.destroy();
+        this.toggle = null;
+        this.quickSettingsItems = [];
         super.destroy();
+        this.icon = null;
     }
 });
 
@@ -91,7 +96,7 @@ export default class TwingatePanelExtension extends Extension {
             vscrollbar_policy: St.PolicyType.AUTOMATIC, overlay_scrollbars: true});
         this._quickScroll.set_child(quickMenu.box);
         quickMenu.actor.add_child(this._quickScroll);
-        this._quick.toggle.connect('clicked', () => {
+        this._toggleClicked = this._quick.toggle.connect('clicked', () => {
             const {status, busy} = this._controller.state;
             if (busy || status === 'unknown') return;
             if (status === 'missing' || status === 'error') this._quick.toggle.menu.open();
@@ -101,14 +106,11 @@ export default class TwingatePanelExtension extends Extension {
             const view = new MenuContent(menu, this._controller, this._settings, actions,
                 {compact: menu === this._quick.toggle.menu, logo: this._logo});
             this._views.push(view);
-            menu.connect('open-state-changed', () => {
-                if (menu === this._quick.toggle.menu && menu.isOpen) this._syncQuickMenuHeight();
-                this._syncPolling();
-                if (menu.isOpen) void this._controller.refresh();
-            });
         }
-        this._quick.toggle.connect('notify::allocation', () => this._syncQuickMenuHeight());
-        this._quick.toggle.menu.actor.connect('notify::allocation', () => this._syncQuickMenuHeight());
+        this._panelMenuChanged = this._panel.menu.connect('open-state-changed', menu => this._menuOpenChanged(menu));
+        this._quickMenuChanged = this._quick.toggle.menu.connect('open-state-changed', menu => this._menuOpenChanged(menu));
+        this._toggleAllocationChanged = this._quick.toggle.connect('notify::allocation', () => this._syncQuickMenuHeight());
+        this._menuAllocationChanged = this._quick.toggle.menu.actor.connect('notify::allocation', () => this._syncQuickMenuHeight());
         this._keyFocusChanged = global.stage.connect('notify::key-focus', () => this._revealQuickMenuFocus());
         this._settingsChanged = this._settings.connect('changed', () => {
             this._panel.visible = this._settings.get_boolean('show-panel-icon');
@@ -132,6 +134,12 @@ export default class TwingatePanelExtension extends Extension {
     _syncPolling() {
         this._controller.setPolling(this._settings.get_int('poll-interval-seconds'),
             this._views.some(view => view.menu.isOpen));
+    }
+
+    _menuOpenChanged(menu) {
+        if (menu === this._quick.toggle.menu && menu.isOpen) this._syncQuickMenuHeight();
+        this._syncPolling();
+        if (menu.isOpen) void this._controller.refresh();
     }
 
     _syncQuickMenuHeight() {
@@ -253,14 +261,38 @@ export default class TwingatePanelExtension extends Extension {
         if (this._networkChanged) this._network.disconnect(this._networkChanged);
         if (this._quickSettingsChanged) this._quickSettingsMenu.disconnect(this._quickSettingsChanged);
         if (this._keyFocusChanged) global.stage.disconnect(this._keyFocusChanged);
+        if (this._toggleClicked) this._quick.toggle.disconnect(this._toggleClicked);
+        if (this._panelMenuChanged) this._panel.menu.disconnect(this._panelMenuChanged);
+        if (this._quickMenuChanged) this._quick.toggle.menu.disconnect(this._quickMenuChanged);
+        if (this._toggleAllocationChanged) this._quick.toggle.disconnect(this._toggleAllocationChanged);
+        if (this._menuAllocationChanged) this._quick.toggle.menu.actor.disconnect(this._menuAllocationChanged);
         this._controller?.dispose();
         this._views?.forEach(view => view.destroy());
+        if (this._quickScroll) {
+            // Restore the menu's box before destroying our wrapper, so each owner
+            // destroys its own actors and the menu can still close normally.
+            this._quickScroll.set_child(null);
+            this._quick.toggle.menu.actor.add_child(this._quick.toggle.menu.box);
+            this._quickScroll.destroy();
+        }
+        this._quickScroll = null;
         this._quick?.destroy();
+        this._quick = null;
         this._panel?.destroy();
+        this._panel = null;
         this._settingsChanged = this._networkChanged = this._quickSettingsChanged = 0;
         this._keyFocusChanged = 0;
-        this._quick = this._quickScroll = this._panel = this._controller = this._client = null;
-        this._settings = this._network = this._quickSettingsMenu = this._logo = null;
+        this._toggleClicked = 0;
+        this._panelMenuChanged = 0;
+        this._quickMenuChanged = 0;
+        this._toggleAllocationChanged = 0;
+        this._menuAllocationChanged = 0;
+        this._controller = null;
+        this._client = null;
+        this._settings = null;
+        this._network = null;
+        this._quickSettingsMenu = null;
+        this._logo = null;
         this._views = [];
     }
 }

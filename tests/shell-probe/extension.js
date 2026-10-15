@@ -203,9 +203,15 @@ async function run() {
 
     let tooltipDestroyed = false;
     quickView._tooltips._label?.connect('destroy', () => { tooltipDestroyed = true; });
+    const destroyed = {panel: 0, indicator: 0, toggle: 0, menu: 0, scroll: 0};
+    const oldQuick = tp._quick;
+    for (const [name, actor] of Object.entries({panel: tp._panel, indicator: oldQuick,
+        toggle: oldQuick.toggle, menu: oldQuick.toggle.menu.actor, scroll: tp._quickScroll}))
+        actor.connect('destroy', () => destroyed[name]++);
     await Main.extensionManager.disableExtension(UUID);
     await wait(500);
     out('disabled', {state: Main.extensionManager.lookup(UUID).state});
+    out('lifecycle-destroyed', destroyed);
     out('tooltip-disabled', {destroyed: tooltipDestroyed, timer: quickView._tooltips._timer});
     const restored = notify(title);
     out('notification-disabled', {queued: queued(restored), restoredEmit: MessageTray.Source.prototype.emit !== originalEmit});
