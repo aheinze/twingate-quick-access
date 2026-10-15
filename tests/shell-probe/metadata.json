@@ -1,0 +1,1 @@
+{"uuid": "twingate-panel-probe@test", "name": "Twingate Panel probe", "description": "Test-only driver", "shell-version": ["50", "51"]}

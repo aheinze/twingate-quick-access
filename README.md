@@ -1,229 +1,151 @@
-<div align="center">
+# Twingate Panel 2.0
 
-<img src="icons/twingate-wordmark.png" alt="Twingate" width="240" />
+Private access, at home in GNOME. A community interface for the official Twingate Linux client.
 
-# Twingate Panel
+This fork is maintained by [aheinze](https://github.com/aheinze) at [aheinze/twingate-panel](https://github.com/aheinze/twingate-panel). Based on [Twingate Panel 1.0.6 by urhend](https://github.com/urhend/twingate-panel), the original author.
 
-**Control the Twingate VPN client from the GNOME top panel — no terminal required.**
-
-![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-50-4a90d9?logo=gnome&logoColor=white)
-![GJS](https://img.shields.io/badge/GJS-ESM-f6d32d)
-![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
-![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
-[![CI](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml)
-[![Get it on GNOME Extensions](https://img.shields.io/badge/extensions.gnome.org-Active-4a90d9?logo=gnome&logoColor=white)](https://extensions.gnome.org/extension/10569/twingate-panel/)
-
-[Repository](https://github.com/urhend/twingate-panel) · [extensions.gnome.org listing](https://extensions.gnome.org/extension/10569/twingate-panel/)
-
-*Not affiliated with or endorsed by Twingate Inc. "Twingate" and its logo are trademarks of their respective owner, used here for identification purposes only.*
-
-</div>
-
----
-
-## Table of contents
-
-- [Overview](#overview)
-- [Screenshot](#screenshot)
-- [Features](#features)
-- [How it works](#how-it-works)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Testing on Wayland](#testing-on-wayland)
-- [Project layout](#project-layout)
-- [Known limitations](#known-limitations)
-- [License](#license)
-- [Disclaimer](#disclaimer)
-
-## Overview
-
-**Twingate Panel** is a lightweight GNOME Shell extension that puts the
-[Twingate](https://www.twingate.com/) zero-trust VPN client one click away.
-Instead of remembering `twingate start`, `twingate stop`, `twingate status`,
-and `twingate resources`, you get a single indicator in the top bar with a
-dropdown menu that does it all.
-
-## Screenshot
-
-<div align="center">
-<img src="screenshots/menu.png" alt="Twingate Panel dropdown menu showing connection status, the connect/disconnect toggle, and a list of resources with reachability dots" width="280" />
-</div>
+Not affiliated with or endorsed by Twingate Inc. The Twingate name and logo are trademarks of Twingate Inc. and identify the client this extension controls. The original GPL-3.0-or-later license applies.
 
 ## Features
 
-| | |
-|---|---|
-| 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header, next to the network name. |
-| 🌐 **Network name** | Shows your Twingate network name (e.g. `network-name`), bold when connected, read from `twingate account list`. |
-| 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
-| 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. Shows "No resources available" instead of an empty section when connected with nothing authorized. |
-| 🔍 **Resource search** | A magnifier button next to "Resources" reveals a compact filter box (name + address); auto-collapses when the dropdown closes. |
-| 🔔 **Connection notifications** | Native GNOME notifications on real connect/disconnect/error transitions, not on every poll — toggleable, and automatically silenced by GNOME's own Do Not Disturb setting. |
-| 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
-| ⚙️ **In-menu preferences** | A settings icon in the dropdown header opens a native GTK4/libadwaita preferences window — no more editing source files. |
-| ⚡ **Fully asynchronous** | Every external command (`twingate`, `pkexec`, `ping`) runs via non-blocking `Gio.Subprocess` — the shell never freezes while it works. |
-| 🧹 **Clean lifecycle** | Timers, subprocesses, and menu state are fully torn down on disable — no leaks, no zombie polling. |
+- A native Quick Settings tile, plus an optional dedicated panel shortcut. Both share one connection controller.
+- The Quick Settings dropdown keeps small resource lists easy to scan, shows search for more than five resources, and keeps active filters visible. Account switching appears when there is more than one account; diagnostics, account setup, and client controls are under Options.
+- The Twingate mark is the icon. It is a symbolic SVG, so GNOME recolors it to match the panel and theme. The panel icon is dimmed while you are not connected. Sign-in required, errors, and a missing client show a distinct icon so they stand out.
+- Pause and resume keep your session and tokens. Neither requires an administrator password.
+- Connect starts a stopped client through systemd's normal GNOME authentication prompt. If the service is already running, there is no prompt.
+- A resource list with search (by name, address, or alias), persistent favorites, and the client's authentication status. Select a resource to copy its address. The key button requests resource authentication.
+- Save explicit website destinations in Preferences → Resource links. An Open button then appears beside the matching resource address or alias. URLs are never guessed, and no shell commands are run.
+- Account switching, and exit-node routing when your network has exit nodes.
+- Optional, on-demand ICMP checks. A missing reply is not treated as proof that an application is down.
+- Preferences → Notifications → Resource authentication popups controls the official notifier's “Additional authentication required” banners. Turn it off to keep requests and their Authenticate buttons in the notification list without popups. Account sign-in prompts still appear. The setting takes effect for new and repeated requests while the extension is enabled; an already visible banner can be dismissed normally.
+- Diagnostics copied from the footer exclude account identities, resource addresses, raw command output, and tokens.
 
-## How it works
+## How it drives the client
 
-```
-┌─ Top panel ─────────────────────────────┐
-│  [Twingate icon]                        │
-└──────────────┬───────────────────────────┘
-               │ click → dropdown:
-               │   network-name  ●                    ⚙ (opens Preferences)
-               │   ────────────────────────
-               │   Connected  [ toggle ]
-               │   ────────────────────────
-               │   Resources                    🔍 (toggles search)
-               │     server-a · 192.168.0.10        ●
-               │     server-b · 192.168.0.20        ●
-               ▼
-   twingate account list  →  network name (fetched once at startup)
-   twingate -d status      →  status dot + bold network name when connected;
-                              sends a notification on real connect/disconnect/
-                              error transitions (never on repeated polls)
-   twingate -d resources    →  resource list (only while connected);
-                              "No resources available" if the list is empty
-   ping -c 1 -W 1 <ip>      →  reachability dot per resource, on its own
-                              independent interval — can be disabled entirely
-```
+All commands run as the desktop user with an argument vector, never a shell string, and with timeouts. The Twingate CLI's own `service-start`, `service-stop`, and (in background daemon mode) `connect` use `sudo`, which cannot ask for a password from inside GNOME Shell. The extension therefore avoids them:
 
-Status polling uses the configured interval while the dropdown is open, and
-backs off to 6× slower while it's closed — reopening the menu triggers an
-immediate refresh. Typing in the resource search box filters by name and
-address without re-fetching or re-pinging anything; closing the dropdown
-clears the search automatically.
+| Action | Command | Notes |
+|---|---|---|
+| Status | `twingate status` | `online`, `offline`, `disconnected` (paused), `authenticating`, `not-running` |
+| Pause | `twingate disconnect` | No privileges needed |
+| Resume, or Connect while offline | `twingate-notifier sdwan-start` | The request `twingate connect` sends after writing a root-owned intention file with `sudo`. Falls back to `twingate connect` if the notifier lacks the command. |
+| Connect while stopped | `systemctl start twingate.service`, then `twingate start` | systemd uses the GNOME polkit prompt; skipped when the service is already active. `twingate start` restarts the desktop notifier and waits for the daemon. If the daemon is running but not connected, it exits successfully without reconnecting, so the extension then sends `twingate-notifier sdwan-start`. |
+| Stop client | `systemctl stop twingate.service`, then `twingate desktop-stop` | |
+| Sign in | `twingate desktop-restart` | Re-registers the desktop session so the official notifier shows "Sign in to Connect" |
+| Resource authentication | `twingate auth <resource name>` | The official notifier opens the browser |
+| Authenticate in a resource notification | `twingate resources`, then `twingate auth <resource name>` | Resolves the notification against the current resource list and uses the same serialized controller as the menu. This avoids the official notifier's unresponsive button callback. |
+| Switch account | `twingate account switch <email:network>` | The account in use is not switched to again |
+| Traffic routing | `twingate exit-node start <node>`, `exit-node switch <node>` when another node is active, `exit-node stop` | |
+| Lists | `twingate resources`, `account list`, `exit-node list` | An empty list exits nonzero with a sentence such as "No exit nodes are available". This is shown as empty, not as an error. |
 
-Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
-which shows GNOME's native graphical polkit prompt for your password — the
-extension itself never sees or handles your credentials.
+Pause, resume, and connect take effect asynchronously in the daemon. Each action stays busy ("Pausing…") until the daemon reports the new state, for at most 10 seconds, so a repeated click cannot reverse it. Every reconnect passes through `authenticating` for about half a second, so that state counts as "Sign-in required" only when it persists for three checks.
 
-## Requirements
-
-- GNOME Shell 50 (Wayland or X11)
-- The Twingate Linux client installed, with the CLI available at
-  `/usr/bin/twingate` — see the
-  [official Twingate Linux installation guide](https://www.twingate.com/docs/linux)
-  for setup instructions on your distribution
-- `pkexec` (polkit) and `ping` (iputils) available on `PATH` — present on
-  virtually every desktop Linux distribution by default
-
-Twingate itself must already be set up once, from a terminal:
-
-```bash
-sudo twingate setup   # one-time network/account configuration
-twingate start        # first login — opens a browser to authenticate
-```
-
-After that, the daemon's tokens are stored globally (`/var/lib/twingate`),
-and the extension handles day-to-day connect/disconnect.
+The connection status is polled in the background, six times less often than the configured interval. When the status changes, it is read again after 2 seconds, so a passing step of a reconnect is not shown for the full interval. Resources, accounts, and exit nodes are read only while a Twingate menu is open; clicking Authenticate in a notification also reads resources once to identify the requested resource. Each resource listing makes the official client log the full resource list to the journal, so it is not done continuously.
 
 ## Installation
 
-### From extensions.gnome.org (recommended)
+The official client must already be installed and configured. This extension does not install, reconfigure, or replace the network daemon.
 
-Twingate Panel is published and active on the official extension repository:
-
-**[extensions.gnome.org/extension/10569/twingate-panel](https://extensions.gnome.org/extension/10569/twingate-panel/)**
-
-You need the [GNOME Shell integration browser extension](https://extensions.gnome.org/about/) installed once (Firefox/Chrome), plus its native host connector (`gnome-browser-connector`, usually available from your distro's package manager — already installed on most GNOME desktops). Then:
-
-1. Open the link above and click **Install**.
-2. Or, from the **Extensions** app already on your system: look for a "Browse" / "Get more extensions" section and search for "Twingate Panel" there.
-
-Updates are then delivered automatically by GNOME Shell — no need to track releases yourself.
-
-### From source
-
-```bash
-git clone https://github.com/urhend/twingate-panel.git
-ln -s "$(pwd)/twingate-panel" ~/.local/share/gnome-shell/extensions/twingate-panel@urhend
-gnome-extensions enable twingate-panel@urhend
+```sh
+python3 tools/install.py
 ```
 
-Then log out and back in (or reload GNOME Shell on X11 with <kbd>Alt</kbd>+<kbd>F2</kbd>, `r`) so the Shell picks up the new extension.
+The installer backs up the existing extension under `~/.local/share/twingate-panel/backups/`, stages the new files, and records the backup path in `~/.local/share/twingate-panel/last-install.json`. Preferences are preserved. Log out and back in to load the new code. The installer does not restart your desktop or network connection.
 
-Use this method only for development or testing unreleased changes — if your working copy is also symlinked as the installed extension, do **not** also click "Install" on extensions.gnome.org for it, since that downloads and overwrites the symlinked directory with the server's packaged copy.
+To restore a previous version:
 
-## Configuration
-
-Click the ⚙ icon in the top-right of the dropdown header (next to the
-network name) to open the preferences window — or run:
-
-```bash
-gnome-extensions prefs twingate-panel@urhend
+```sh
+python3 tools/install.py --restore /absolute/path/to/the/backup
 ```
 
-| Setting | Default | Description |
-|---|---|---|
-| Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
-| Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
-| Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
-| Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
+## Compatibility
 
-Settings are stored via GSettings (schema
-`org.gnome.shell.extensions.twingate-panel`), so they persist across
-extension reloads and updates.
+| Component | Status |
+|---|---|
+| GNOME 50 | Verified on 50.5 in a real headless GNOME Shell: menus, submenus, Quick Settings, enable/disable cycles, and Pause → Resume through the actual buttons. |
+| GNOME 51 | Verified on 51.1 in an isolated headless GNOME Shell: menus, Quick Settings, notification filtering, and enable/disable cycles. |
+| Twingate client | Verified against 2026.239.6882 (libsdwan 0.196.0). Status, pause, resume, `twingate start` from a paused daemon, sign-in, and every list were exercised live. The parser fixtures are its real output with personal data replaced. |
 
-## Testing on Wayland
+Resource authentication was exercised against the real client: the browser opened, authentication succeeded, and the resource reported a future authentication expiry. The notification button is also activated in the isolated Shell test with only the CLI transport stubbed.
 
-Wayland doesn't support reloading GNOME Shell in place, so use a nested
-session instead of logging out while iterating:
+Not yet exercised live: starting the service after Stop client (needs the administrator password at the system prompt), switching between multiple accounts and exit-node routing (the test network has one account and no exit nodes), and the browser sign-in after an expired session.
 
-```bash
-env MUTTER_DEBUG_DUMMY_MODE_SPECS=1400x900 dbus-run-session -- gnome-shell --wayland
+## Tests
+
+```sh
+npm test               # parsers, client commands, controller races, menus, lifecycle
+npm run test:gjs       # real Gio.Subprocess runner: argv, timeouts, cancellation, reaping
+npm run test:platform  # real St/Clutter/libadwaita contracts, stylesheet, schema (Fedora library paths)
+npm run test:package   # reproducible ZIP and install/rollback in a temporary home
+python3 tools/shell_smoke.py                  # real headless GNOME Shell, read-only
+python3 tools/shell_smoke.py --live-actions   # also clicks Pause and Resume (interrupts access for a few seconds)
 ```
 
-Watch for errors in another terminal:
+`tests/fixtures/` holds real client output. When a new client version changes its output, capture it there first. The shell smoke test runs with its own D-Bus session, settings, and runtime directory. It saves screenshots and the full Shell log to `dist/shell-smoke/` and fails on any JavaScript error.
 
-```bash
-journalctl -f -o cat /usr/bin/gnome-shell
+## Release packages
+
+```sh
+npm run build
 ```
 
-## Project layout
+ZIP files and SHA-256 checksums are written to `dist/`. Builds use sorted files and fixed timestamps, and download nothing.
 
-```
-twingate-panel/
-├── .github/workflows/ci.yml # CI: JS syntax, metadata.json, schema compile
-├── metadata.json            # Extension manifest (uuid, name, shell-version…)
-├── extension.js             # All logic: indicator, menu, polling, subprocesses
-├── prefs.js                 # GTK4/libadwaita preferences window
-├── stylesheet.css           # Panel/menu styling (status dots, fonts, spacing)
-├── schemas/
-│   ├── org.gnome.shell.extensions.twingate-panel.gschema.xml
-│   └── gschemas.compiled    # Compiled schema (required at runtime)
-├── icons/
-│   ├── twingate-panel.png   # Static top-bar icon
-│   └── twingate-wordmark.png# Unused for now (dropped in favor of the
-│                            # network name); kept for a possible future revision
-├── screenshots/
-│   └── menu.png             # Dropdown menu preview (used in this README)
-├── LICENSE                  # GPL-3.0-or-later
-└── README.md
-```
+## Changelog
 
-## Known limitations
+### 2.0.5
 
-- `start`/`stop` always prompt for a password via `pkexec` — there is no
-  passwordless option. This is intentional: `sudo` is disallowed entirely
-  for privileged subprocesses under
-  [GNOME's extension review guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html#privileged-subprocess-must-not-be-user-writable).
-- The Twingate binary path (`/usr/bin/twingate`) is hardcoded, not
-  configurable — for the same reason as above, and because every official
-  Twingate installer puts it there anyway.
-- Resource reachability is a simple one-shot ICMP ping; it doesn't reflect
-  Twingate's own internal routing/health checks.
+- Added: Delayed tooltips for icon buttons in Quick Settings and the panel menu, including resource actions, favorites, refresh, preferences, help, and diagnostics. Labels also appear on keyboard focus and follow the current action.
+- Tooltips use the Shell theme, stay within the monitor, and dismiss on click, scrolling, menu close, or disable.
 
-## License
+### 2.0.4
 
-Licensed under the [GNU General Public License v3.0 or later](LICENSE)
-(GPL-3.0-or-later) — see the [`LICENSE`](LICENSE) file for the full text.
+- Fixed: Failed notification authentication opens Quick Settings when the separate panel shortcut is hidden, keeping the error and retry controls accessible.
+- Fixed: The Quick Settings dropdown scrolls within the available screen height so expanded submenus stay reachable. Keyboard focus reveals off-screen controls, and resource rows retain a usable minimum height.
+- Tests: Verify recovery through the real GNOME notification action, scrolling and keyboard visibility on short screens, and filters staying clearable after a list refresh.
 
-## Disclaimer
+### 2.0.3
 
-This is an unofficial, community-built project. It is **not affiliated
-with, endorsed by, or supported by Twingate Inc.** The Twingate name and
-logo belong to their respective owner and are used here only to identify
-the software this extension controls.
+- Refined the Quick Settings dropdown with native typography, tighter spacing, a quiet connection row, and concise resource addresses and session expiry.
+- Search appears for larger lists and stays available while a filter is active. A single account is shown in the connection subtitle; account switching remains available for multiple accounts.
+- Reduced the footer to refresh and preferences, with diagnostics and setup under Options.
+
+### 2.0.2
+
+- Fixed: Authenticate in resource notifications now initiates authentication through the working CLI command, including notifications already in the list and those with popups muted. Busy requests remain retryable, and failures show a message and open the Twingate menu.
+- Tests: Click the real notification action in the isolated GNOME Shell; verify current-resource matching, stale/ambiguous requests, unrelated actions, and cleanup on disable.
+
+### 2.0.1
+
+- Added: A separate switch for resource authentication popups from `twingate-notifier`. Muted requests retain their Authenticate action in GNOME's notification list; sign-in and other applications' notifications are unaffected.
+- Added: GNOME 51 support and real-Shell checks for critical authentication requests, replacements, toggling the setting, and restoring normal delivery when disabled.
+
+### 2.0.0
+
+- Fixed: Resume failed with a `sudo` error. It now uses the notifier's `sdwan-start` request, which needs no privileges.
+- Fixed: Sign in always failed ("Resource name must be specified"). It now restarts the official notifier so its sign-in prompt appears.
+- Fixed: Accounts and Traffic routing could not be opened, because GNOME closes a submenu's parent when a nested submenu opens. They are now top-level submenus.
+- Fixed: Traffic routing reported "Routing details unavailable" when there were no exit nodes, and an empty resource list was reported as an error.
+- Fixed: Clicking Pause or Resume showed the old state for about a second, so a second click repeated the action.
+- Fixed: Connect did nothing when the daemon was running but not connected: `twingate start` only waits in that case. The extension now sends the resume request itself.
+- Fixed: A reconnect could show "Sign-in required" for up to 30 seconds, and announce "Connected" again after each network change.
+- Fixed: Selecting the account in use switched to it again, and selecting another exit node while one was active used `start` instead of `switch`.
+- Fixed: Connect asked for an administrator password even when the service was already running.
+- Fixed: The "Connected" notification appeared at every login and screen unlock.
+- Fixed: The Quick Settings subtitle could be 30 seconds stale when Quick Settings opened.
+- Added: Resource aliases (shown, searchable, and usable for saved links) and the client's authentication status.
+- Changed: The panel, Quick Settings, menu, and preferences use the Twingate mark instead of a generic VPN icon. `icons/twingate-panel-symbolic.svg` is traced from the official wordmark in `icons/`.
+- Changed: Background polling reads only the connection status, which reduces process spawns and journal noise.
+- Tests: Real client output fixtures; the platform test can no longer write to the user's settings; new real-Shell smoke test.
+
+## Code map
+
+- `model.js`: pure parsing, search, identity, and destination validation.
+- `runner.js`: bounded asynchronous Gio processes with explicit cleanup.
+- `client.js`: the client adapter, with the command choices above.
+- `controller.js`: one polling loop, serialized actions with state settling, and stale-result suppression.
+- `menu.js`: stable resource rows and native GNOME menu components.
+- `extension.js`: panel and Quick Settings integration, notifications, and lifecycle.
+- `prefs.js`: native libadwaita preferences and user-defined website links.
+
+`ping-interval-seconds` is retained only for rollback compatibility. When the account list does not identify the active account and there are several accounts, the UI shows the account count rather than guessing.

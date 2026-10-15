@@ -5,23 +5,43 @@
       <default>5</default>
       <range min="1" max="60"/>
       <summary>Poll interval</summary>
-      <description>How often, in seconds, status and resources are refreshed.</description>
+      <description>How often, in seconds, status and resources are refreshed while a Twingate menu is open. The connection status is checked six times less often in the background.</description>
     </key>
     <key name="notifications-enabled" type="b">
-      <default>true</default>
+      <default>false</default>
       <summary>Enable connection notifications</summary>
       <description>Send a native notification when the connection state actually changes (connected/disconnected/error). Note: GNOME's own Do Not Disturb setting already suppresses notification banners system-wide regardless of this setting.</description>
     </key>
-    <key name="ping-enabled" type="b">
+    <key name="resource-authentication-popups" type="b">
       <default>true</default>
-      <summary>Enable resource reachability pings</summary>
-      <description>Periodically ping each authorized resource's address to show a reachability dot. Disable to skip pinging entirely.</description>
+      <summary>Show resource authentication popups</summary>
+      <description>Show banners for the official twingate-notifier's Additional authentication required requests. When disabled, requests and their Authenticate action remain in the notification list. Account sign-in prompts and other notifications are unaffected. Applies while Twingate Panel is enabled.</description>
+    </key>
+    <key name="ping-enabled" type="b">
+      <default>false</default>
+      <summary>Show manual ICMP checks</summary>
+      <description>Show an on-demand ICMP check for concrete resource hosts. There are no background pings. A missing response does not mean an application is unavailable.</description>
     </key>
     <key name="ping-interval-seconds" type="i">
       <default>5</default>
       <range min="1" max="300"/>
       <summary>Ping interval</summary>
-      <description>How often, in seconds, resource reachability is re-checked via ping. Independent of the status poll interval.</description>
+      <description>Legacy preference retained for rollback compatibility. Automatic pings are no longer used.</description>
+    </key>
+    <key name="show-panel-icon" type="b">
+      <default>true</default>
+      <summary>Show the dedicated panel shortcut</summary>
+      <description>Quick Settings is always available. Also show a dedicated Twingate panel shortcut.</description>
+    </key>
+    <key name="favorite-resources" type="as">
+      <default>[]</default>
+      <summary>Favorite resources</summary>
+      <description>Stable resource identifiers selected by the user. Only resources returned by the active client account are shown.</description>
+    </key>
+    <key name="resource-links" type="s">
+      <default>'{}'</default>
+      <summary>Explicit website destinations</summary>
+      <description>A JSON object mapping exact resource addresses or aliases to user-configured HTTP or HTTPS destinations. Links only open following an explicit click.</description>
     </key>
   </schema>
 </schemalist>

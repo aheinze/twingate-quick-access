@@ -1,2 +1,5 @@
 TODO.md
 WYJASNIENIE.md
+dist/
+schemas/gschemas.compiled
+__pycache__/

@@ -1,0 +1,13 @@
+{
+  "name": "twingate-panel",
+  "version": "2.0.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-isolation=none tests/*.test.js",
+    "test:gjs": "gjs -m tests/runner.gjs.js",
+    "test:platform": "python3 tools/platform_test.py",
+    "test:package": "python3 tests/package_test.py",
+    "build": "python3 tools/package.py"
+  }
+}

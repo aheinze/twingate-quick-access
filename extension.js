@@ -1,676 +1,266 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Twingate Panel — GNOME Shell extension
-// Copyright (C) 2026 the Twingate Panel contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// any later version. See the LICENSE file for details.
+import Gio from 'gi://Gio';
+import St from 'gi://St';
+import GObject from 'gi://GObject';
+import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as QuickSettings from 'resource:///org/gnome/shell/ui/quickSettings.js';
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
+import {CommandRunner, scheduler} from './runner.js';
+import {TwingateClient} from './client.js';
+import {Controller} from './controller.js';
+import {MenuContent, stateIcon} from './menu.js';
+import {STATES, accountLabel} from './model.js';
 
-import GObject from "gi://GObject";
-import St from "gi://St";
-import Gio from "gi://Gio";
-import GLib from "gi://GLib";
-import Clutter from "gi://Clutter";
-
-import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
-import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
-import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
-
-Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
-
-const TWINGATE_BIN = "/usr/bin/twingate";
-
-const STATUS_INFO = {
-  "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
-  offline: { label: "Offline", connected: false, dotColor: "#9a9996" },
-  online: { label: "Online", connected: true, dotColor: "#33d17a" },
-  connecting: { label: "Connecting…", connected: false, dotColor: "#f5c211" },
-  authenticating: {
-    label: "Authenticating…",
-    connected: false,
-    dotColor: "#f5c211",
-  },
-  unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
-};
-
-const NOTIFY_CATEGORY = {
-  online: "connected",
-  "not-running": "disconnected",
-  offline: "disconnected",
-  unknown: "error",
-};
-
-const PING_CLASSES = [
-  "twingate-dot-pending",
-  "twingate-dot-reachable",
-  "twingate-dot-unreachable",
-];
-const DOT_SIZE = 7;
-const BACKGROUND_POLL_MULTIPLIER = 6;
-
-function createDot(extraClass) {
-  const dot = new St.Widget({
-    style_class: `twingate-status-dot ${extraClass}`,
-    x_expand: false,
-    y_expand: false,
-    y_align: Clutter.ActorAlign.CENTER,
-  });
-  dot.set_size(DOT_SIZE, DOT_SIZE);
-  return dot;
+function isResourceAuthentication(source, notification) {
+    return source.title === 'twingate-notifier' &&
+        notification?.title === 'Twingate Client: Additional authentication required';
 }
 
-function statusInfoFor(token) {
-  return STATUS_INFO[token] ?? STATUS_INFO.unknown;
-}
-
-async function runCommand(argv, cancellable) {
-  let proc;
-  try {
-    proc = new Gio.Subprocess({
-      argv,
-      flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
-    });
-    proc.init(cancellable);
-  } catch (e) {
-    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return { success: false, stdout: "", stderr: e.message ?? String(e) };
-  }
-
-  try {
-    const [stdout, stderr] = await proc.communicate_utf8_async(
-      null,
-      cancellable,
-    );
-    return {
-      success: proc.get_successful(),
-      stdout: stdout ?? "",
-      stderr: stderr ?? "",
-    };
-  } catch (e) {
-    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return { success: false, stdout: "", stderr: e.message ?? String(e) };
-  }
-}
-
-function parseStatusToken(stdout) {
-  const firstLine =
-    (stdout ?? "")
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0) ?? "";
-  const token = firstLine.toLowerCase().split(/\s+/)[0] ?? "";
-  return token in STATUS_INFO ? token : "unknown";
-}
-
-async function pingAddress(address, cancellable) {
-  try {
-    const result = await runCommand(
-      ["ping", "-c", "1", "-W", "1", address],
-      cancellable,
-    );
-    return result.success;
-  } catch (e) {
-    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return false;
-  }
-}
-
-function parseNetworkName(stdout) {
-  const lines = (stdout ?? "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  for (const line of lines) {
-    const fields = line.split("\t").map((f) => f.trim());
-    if (fields.length < 2 || /^email$/i.test(fields[0])) continue;
-    return fields[1];
-  }
-  return null;
-}
-
-const VALID_ADDRESS_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]*$/;
-
-function parseResources(stdout) {
-  const lines = (stdout ?? "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-  const rows = [];
-  for (const line of lines) {
-    const fields = line.split("\t").map((f) => f.trim());
-    if (fields.length < 2 || /^resource name$/i.test(fields[0])) continue;
-    const address = fields[1];
-    if (!VALID_ADDRESS_RE.test(address)) continue;
-    rows.push({ name: fields[0], address });
-  }
-  return rows;
-}
-
-const Indicator = GObject.registerClass(
-  class Indicator extends PanelMenu.Button {
-    _init(extensionPath, settings, onOpenPreferences) {
-      super._init(0.0, "Twingate Panel", false);
-
-      this._extensionPath = extensionPath;
-      this._settings = settings;
-      this._onOpenPreferences = onOpenPreferences;
-      this._cancellable = new Gio.Cancellable();
-      this._timeoutId = null;
-      this._pingTimeoutId = null;
-      this._pendingRefreshIds = new Set();
-      this._suppressToggle = false;
-      this._busy = false;
-      this._resourceGeneration = 0;
-      this._resourceDots = new Map();
-      this._allResources = [];
-      this._resourceFilter = "";
-      this._searchToggledOn = false;
-      this._pingStatus = new Map();
-      this._previousCategory = null;
-      this._connected = false;
-
-      const iconPath = GLib.build_filenamev([
-        extensionPath,
-        "icons",
-        "twingate-panel.png",
-      ]);
-      this._icon = new St.Icon({
-        gicon: Gio.icon_new_for_string(iconPath),
-        icon_size: 16,
-      });
-      this.add_child(this._icon);
-
-      this._buildMenu();
-      this._setState("unknown");
-
-      this._refresh();
-      this._startPolling();
-      this._startPingPolling();
-      this._loadNetworkName();
-
-      this._menuOpenStateId = this.menu.connect(
-        "open-state-changed",
-        (_menu, isOpen) => {
-          if (isOpen) this._refresh();
-          else this._setSearchVisible(false);
-          this._startPolling();
-        },
-      );
-      this._settingsChangedId = this._settings.connect(
-        "changed::poll-interval-seconds",
-        () => {
-          this._startPolling();
-        },
-      );
-      this._pingSettingsChangedId = this._settings.connect(
-        "changed::ping-enabled",
-        () => {
-          this._startPingPolling();
-          this._refreshResources();
-        },
-      );
-      this._pingIntervalChangedId = this._settings.connect(
-        "changed::ping-interval-seconds",
-        () => {
-          this._startPingPolling();
-        },
-      );
+const PanelIndicator = GObject.registerClass(class TwingatePanelIndicator extends PanelMenu.Button {
+    _init(logo) {
+        super._init(0, 'Twingate', false);
+        this.icon = new St.Icon({gicon: logo, style_class: 'system-status-icon'});
+        this.add_child(this.icon);
     }
+});
 
-    async _loadNetworkName() {
-      let result;
-      try {
-        result = await runCommand(
-          [TWINGATE_BIN, "-d", "account", "list"],
-          this._cancellable,
-        );
-      } catch (e) {
-        return;
-      }
-
-      const name = parseNetworkName(result.stdout);
-      if (name) this._networkNameLabel.text = name;
+const QuickIndicator = GObject.registerClass(class TwingateQuickIndicator extends QuickSettings.SystemIndicator {
+    _init(logo) {
+        super._init();
+        this.icon = this._addIndicator();
+        this.icon.gicon = logo;
+        this.toggle = new QuickSettings.QuickMenuToggle({title: 'Twingate',
+            subtitle: 'Checking…', gicon: logo, toggleMode: false});
+        this.quickSettingsItems.push(this.toggle);
     }
-
-    _startPolling() {
-      if (this._timeoutId) {
-        GLib.Source.remove(this._timeoutId);
-        this._timeoutId = null;
-      }
-      const base = this._settings.get_int("poll-interval-seconds");
-      const seconds = this.menu.isOpen ? base : base * BACKGROUND_POLL_MULTIPLIER;
-      this._timeoutId = GLib.timeout_add_seconds(
-        GLib.PRIORITY_DEFAULT,
-        seconds,
-        () => {
-          this._refresh();
-          return GLib.SOURCE_CONTINUE;
-        },
-      );
-    }
-
-    _startPingPolling() {
-      if (this._pingTimeoutId) {
-        GLib.Source.remove(this._pingTimeoutId);
-        this._pingTimeoutId = null;
-      }
-      if (!this._settings.get_boolean("ping-enabled")) return;
-
-      const seconds = this._settings.get_int("ping-interval-seconds");
-      this._pingTimeoutId = GLib.timeout_add_seconds(
-        GLib.PRIORITY_DEFAULT,
-        seconds,
-        () => {
-          this._pingAllResources(this._resourceGeneration);
-          return GLib.SOURCE_CONTINUE;
-        },
-      );
-    }
-
-    _pingAllResources(generation) {
-      for (const { address } of this._allResources) {
-        if (generation !== this._resourceGeneration) return;
-        pingAddress(address, this._cancellable)
-          .then((reachable) => {
-            if (generation !== this._resourceGeneration) return;
-            this._pingStatus.set(address, reachable);
-            const dot = this._resourceDots.get(address);
-            if (dot) {
-              for (const cls of PING_CLASSES) dot.remove_style_class_name(cls);
-              dot.add_style_class_name(
-                reachable
-                  ? "twingate-dot-reachable"
-                  : "twingate-dot-unreachable",
-              );
-            }
-          })
-          .catch(() => {});
-      }
-    }
-
-    _buildMenu() {
-      const headerItem = new PopupMenu.PopupBaseMenuItem({
-        reactive: false,
-        can_focus: false,
-      });
-      const headerBox = new St.BoxLayout({
-        style_class: "twingate-header-box",
-        x_expand: true,
-      });
-
-      this._networkNameLabel = new St.Label({
-        style_class: "twingate-network-title",
-        text: "Twingate",
-        y_align: Clutter.ActorAlign.CENTER,
-      });
-      headerBox.add_child(this._networkNameLabel);
-
-      this._statusDot = createDot("");
-      headerBox.add_child(this._statusDot);
-
-      const spacer = new St.Widget({ x_expand: true });
-      headerBox.add_child(spacer);
-
-      const settingsButton = new St.Button({
-        style_class: "twingate-settings-button",
-        y_align: Clutter.ActorAlign.START,
-        child: new St.Icon({
-          icon_name: "preferences-system-symbolic",
-          style_class: "popup-menu-icon twingate-header-icon",
-        }),
-      });
-      settingsButton.connect("clicked", () => {
-        this.menu.close();
-        this._onOpenPreferences();
-      });
-      headerBox.add_child(settingsButton);
-
-      headerItem.add_child(headerBox);
-      this.menu.addMenuItem(headerItem);
-
-      this._switchItem = new PopupMenu.PopupSwitchMenuItem("Connected", false);
-      this._switchItem.connect("toggled", (_item, state) => {
-        if (this._suppressToggle) return;
-        this._onToggle(state);
-      });
-      this.menu.addMenuItem(this._switchItem);
-
-      this._resourcesSeparator = new PopupMenu.PopupSeparatorMenuItem();
-      this.menu.addMenuItem(this._resourcesSeparator);
-
-      this._resourcesHeader = new PopupMenu.PopupBaseMenuItem({
-        reactive: true,
-        can_focus: false,
-        activate: false,
-      });
-      const resourcesHeaderBox = new St.BoxLayout({ x_expand: true });
-
-      const resourcesLabel = new St.Label({
-        style_class: "twingate-resources-header",
-        text: "Resources",
-        y_align: Clutter.ActorAlign.CENTER,
-        x_expand: true,
-      });
-      resourcesHeaderBox.add_child(resourcesLabel);
-
-      const searchToggleButton = new St.Button({
-        style_class: "twingate-settings-button",
-        child: new St.Icon({
-          icon_name: "edit-find-symbolic",
-          style_class: "popup-menu-icon twingate-header-icon",
-        }),
-      });
-      searchToggleButton.connect("clicked", () => {
-        this._setSearchVisible(!this._resourceSearchItem.visible);
-      });
-      resourcesHeaderBox.add_child(searchToggleButton);
-
-      this._resourcesHeader.add_child(resourcesHeaderBox);
-      this._resourcesHeader.visible = false;
-      this.menu.addMenuItem(this._resourcesHeader);
-
-      const searchItem = new PopupMenu.PopupBaseMenuItem({
-        reactive: true,
-        can_focus: false,
-        activate: false,
-      });
-      this._searchEntry = new St.Entry({
-        style_class: "twingate-search-entry",
-        hint_text: "Search resources…",
-        x_expand: true,
-        can_focus: true,
-      });
-      this._searchEntry.clutter_text.connect("text-changed", () => {
-        this._resourceFilter = this._searchEntry
-          .get_text()
-          .trim()
-          .toLowerCase();
-        this._renderResourceItems();
-      });
-      searchItem.add_child(this._searchEntry);
-      searchItem.visible = false;
-      this.menu.addMenuItem(searchItem);
-      this._resourceSearchItem = searchItem;
-
-      this._resourcesSection = new PopupMenu.PopupMenuSection();
-      this.menu.addMenuItem(this._resourcesSection);
-    }
-
-    _setState(token) {
-      const info = statusInfoFor(token);
-      this._connected = info.connected;
-
-      this._statusDot.set_style(`background-color: ${info.dotColor};`);
-
-      if (info.connected)
-        this._networkNameLabel.add_style_class_name(
-          "twingate-network-title-connected",
-        );
-      else
-        this._networkNameLabel.remove_style_class_name(
-          "twingate-network-title-connected",
-        );
-
-      this._suppressToggle = true;
-      this._switchItem.setToggleState(info.connected);
-      this._suppressToggle = false;
-    }
-
-    _setResources(resources) {
-      this._allResources = resources;
-      if (resources.length === 0) this._pingStatus.clear();
-      this._renderResourceItems();
-
-      const pingEnabled = this._settings.get_boolean("ping-enabled");
-      if (pingEnabled && resources.length > 0)
-        this._pingAllResources(this._resourceGeneration);
-    }
-
-    _setSearchVisible(visible) {
-      this._searchToggledOn = visible;
-      if (!visible) this._searchEntry.set_text("");
-      this._resourceSearchItem.visible =
-        visible && this._allResources.length > 0;
-      if (visible) this._searchEntry.grab_key_focus();
-    }
-
-    _renderResourceItems() {
-      this._resourcesSection.removeAll();
-
-      const hasResources = this._allResources.length > 0;
-      const showEmptyPlaceholder = this._connected && !hasResources;
-      this._resourcesHeader.visible = hasResources || showEmptyPlaceholder;
-      this._resourceSearchItem.visible = hasResources && this._searchToggledOn;
-
-      this._resourceGeneration++;
-      this._resourceDots.clear();
-
-      const pingEnabled = this._settings.get_boolean("ping-enabled");
-      const filter = this._resourceFilter;
-      const filtered = filter
-        ? this._allResources.filter(({ name, address }) =>
-            `${name} ${address}`.toLowerCase().includes(filter),
-          )
-        : this._allResources;
-
-      if (showEmptyPlaceholder) {
-        const emptyItem = new PopupMenu.PopupBaseMenuItem({
-          reactive: false,
-          can_focus: false,
-        });
-        emptyItem.add_child(
-          new St.Label({
-            style_class: "twingate-resource-empty",
-            text: "No resources available",
-            x_expand: true,
-          }),
-        );
-        this._resourcesSection.addMenuItem(emptyItem);
-      }
-
-      for (const { name, address } of filtered) {
-        const item = new PopupMenu.PopupBaseMenuItem({
-          reactive: false,
-          can_focus: false,
-        });
-        const box = new St.BoxLayout({
-          style_class: "twingate-resource-box",
-          x_expand: true,
-        });
-
-        const label = new St.Label({
-          style_class: "twingate-resource-label",
-          text: `${name} · ${address}`,
-          y_align: Clutter.ActorAlign.CENTER,
-          x_expand: true,
-        });
-        box.add_child(label);
-
-        const status = this._pingStatus.get(address);
-        const pingClass =
-          status === true
-            ? "twingate-dot-reachable"
-            : status === false
-              ? "twingate-dot-unreachable"
-              : "twingate-dot-pending";
-        const pingDot = createDot(pingClass);
-        pingDot.visible = pingEnabled;
-        box.add_child(pingDot);
-
-        item.add_child(box);
-        this._resourcesSection.addMenuItem(item);
-
-        if (pingEnabled) this._resourceDots.set(address, pingDot);
-      }
-    }
-
-    _onToggle(wantConnected) {
-      if (wantConnected) this._runStart();
-      else this._runStop();
-    }
-
-    async _runStart() {
-      if (this._busy) return;
-      this._busy = true;
-      try {
-        await runCommand(
-          ["pkexec", TWINGATE_BIN, "start"],
-          this._cancellable,
-        );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
-      }
-      this._scheduleQuickRefreshes();
-    }
-
-    async _runStop() {
-      if (this._busy) return;
-      this._busy = true;
-      try {
-        await runCommand(
-          ["pkexec", TWINGATE_BIN, "stop"],
-          this._cancellable,
-        );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
-      }
-      this._scheduleQuickRefreshes();
-    }
-
-    _scheduleQuickRefreshes() {
-      for (const delay of [2, 5]) {
-        const id = GLib.timeout_add_seconds(
-          GLib.PRIORITY_DEFAULT,
-          delay,
-          () => {
-            this._pendingRefreshIds.delete(id);
-            this._refresh();
-            return GLib.SOURCE_REMOVE;
-          },
-        );
-        this._pendingRefreshIds.add(id);
-      }
-    }
-
-    async _refresh() {
-      let result;
-      try {
-        result = await runCommand(
-          [TWINGATE_BIN, "-d", "status"],
-          this._cancellable,
-        );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
-        return;
-      }
-
-      if (!result.success && result.stdout.length === 0) {
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
-        return;
-      }
-
-      const token = parseStatusToken(result.stdout);
-      this._setState(token);
-      this._maybeNotifyStateChange(token);
-
-      if (statusInfoFor(token).connected) this._refreshResources();
-      else this._setResources([]);
-    }
-
-    _maybeNotifyStateChange(token) {
-      const category = NOTIFY_CATEGORY[token] ?? null;
-      if (
-        category &&
-        this._previousCategory !== null &&
-        category !== this._previousCategory &&
-        this._settings.get_boolean("notifications-enabled")
-      ) {
-        const network = this._networkNameLabel.text || "Twingate";
-        if (category === "connected")
-          Main.notify("Twingate", `Connected to ${network}`);
-        else if (category === "disconnected")
-          Main.notify("Twingate", "Disconnected");
-        else if (category === "error")
-          Main.notifyError(
-            "Twingate",
-            "Something went wrong — check the connection status.",
-          );
-      }
-      if (category) this._previousCategory = category;
-    }
-
-    async _refreshResources() {
-      let result;
-      try {
-        result = await runCommand(
-          [TWINGATE_BIN, "-d", "resources"],
-          this._cancellable,
-        );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        this._setResources([]);
-        return;
-      }
-
-      this._setResources(parseResources(result.stdout));
-    }
-
     destroy() {
-      if (this._timeoutId) {
-        GLib.Source.remove(this._timeoutId);
-        this._timeoutId = null;
-      }
-      if (this._pingTimeoutId) {
-        GLib.Source.remove(this._pingTimeoutId);
-        this._pingTimeoutId = null;
-      }
-      for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
-      this._pendingRefreshIds.clear();
-      this._resourceDots.clear();
-
-      if (this._menuOpenStateId) {
-        this.menu.disconnect(this._menuOpenStateId);
-        this._menuOpenStateId = null;
-      }
-      if (this._settingsChangedId) {
-        this._settings.disconnect(this._settingsChangedId);
-        this._settingsChangedId = null;
-      }
-      if (this._pingSettingsChangedId) {
-        this._settings.disconnect(this._pingSettingsChangedId);
-        this._pingSettingsChangedId = null;
-      }
-      if (this._pingIntervalChangedId) {
-        this._settings.disconnect(this._pingIntervalChangedId);
-        this._pingIntervalChangedId = null;
-      }
-
-      this._cancellable.cancel();
-
-      super.destroy();
+        this.quickSettingsItems.forEach(item => item.destroy());
+        super.destroy();
     }
-  },
-);
+});
 
 export default class TwingatePanelExtension extends Extension {
-  enable() {
-    this._indicator = new Indicator(this.path, this.getSettings(), () =>
-      this.openPreferences(),
-    );
-    Main.panel.addToStatusArea(this.uuid, this._indicator);
-  }
+    enable() {
+        this._settings = this.getSettings();
+        this._notificationFilter = new InjectionManager();
+        const settings = this._settings;
+        // Filter the banner request, not notification delivery: the notification list
+        // keeps its Authenticate action. This also catches replacements from sources
+        // created before enable(), whose tray callbacks are already bound.
+        this._notificationFilter.overrideMethod(MessageTray.Source.prototype, 'emit', original => function (signal, ...args) {
+            if (signal === 'notification-request-banner' &&
+                !settings.get_boolean('resource-authentication-popups') &&
+                isResourceAuthentication(this, args[0]))
+                return;
+            return original.call(this, signal, ...args);
+        });
+        const extension = this;
+        // Resolve the action at click time so existing and replaced notifications work,
+        // including those retained in the notification list with banners disabled.
+        this._notificationFilter.overrideMethod(MessageTray.Action.prototype, 'activate', original => function (...args) {
+            if (this.label === 'Authenticate') {
+                for (const source of Main.messageTray.getSources()) {
+                    const notification = source.notifications.find(item =>
+                        isResourceAuthentication(source, item) && item.actions.includes(this));
+                    if (notification) return extension._authenticateNotification(notification);
+                }
+            }
+            return original.call(this, ...args);
+        });
+        this._views = [];
+        this._previousStatus = null;
+        // A -symbolic SVG is recolored by the Shell to match the panel and theme.
+        this._logo = Gio.FileIcon.new(this.dir.resolve_relative_path('icons/twingate-panel-symbolic.svg'));
+        this._client = new TwingateClient(new CommandRunner());
+        this._controller = new Controller(this._client, scheduler, state => this._render(state));
+        const actions = {
+            settings: () => this.openPreferences(),
+            diagnostics: () => this._copyDiagnostics(),
+            notify: text => this._notice(text),
+        };
+        this._panel = new PanelIndicator(this._logo);
+        Main.panel.addToStatusArea(this.uuid, this._panel);
+        this._quick = new QuickIndicator(this._logo);
+        Main.panel.statusArea.quickSettings.addExternalIndicator(this._quick);
+        const quickMenu = this._quick.toggle.menu;
+        quickMenu.actor.remove_child(quickMenu.box);
+        this._quickScroll = new St.ScrollView({hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC, overlay_scrollbars: true});
+        this._quickScroll.set_child(quickMenu.box);
+        quickMenu.actor.add_child(this._quickScroll);
+        this._quick.toggle.connect('clicked', () => {
+            const {status, busy} = this._controller.state;
+            if (busy || status === 'unknown') return;
+            if (status === 'missing' || status === 'error') this._quick.toggle.menu.open();
+            else void this._controller.primaryAction();
+        });
+        for (const menu of [this._panel.menu, this._quick.toggle.menu]) {
+            const view = new MenuContent(menu, this._controller, this._settings, actions,
+                {compact: menu === this._quick.toggle.menu, logo: this._logo});
+            this._views.push(view);
+            menu.connect('open-state-changed', () => {
+                if (menu === this._quick.toggle.menu && menu.isOpen) this._syncQuickMenuHeight();
+                this._syncPolling();
+                if (menu.isOpen) void this._controller.refresh();
+            });
+        }
+        this._quick.toggle.connect('notify::allocation', () => this._syncQuickMenuHeight());
+        this._quick.toggle.menu.actor.connect('notify::allocation', () => this._syncQuickMenuHeight());
+        this._keyFocusChanged = global.stage.connect('notify::key-focus', () => this._revealQuickMenuFocus());
+        this._settingsChanged = this._settings.connect('changed', () => {
+            this._panel.visible = this._settings.get_boolean('show-panel-icon');
+            this._syncPolling();
+            this._render(this._controller.state);
+        });
+        this._network = Gio.NetworkMonitor.get_default();
+        this._networkChanged = this._network.connect('network-changed', () => void this._controller.refresh());
+        // Keep the tile's subtitle current when Quick Settings opens. This is a status-only
+        // read; resources load when the Twingate menu itself is expanded.
+        this._quickSettingsMenu = Main.panel.statusArea.quickSettings.menu;
+        this._quickSettingsChanged = this._quickSettingsMenu.connect('open-state-changed', (_menu, open) => {
+            if (open) void this._controller.refresh();
+        });
+        this._panel.visible = this._settings.get_boolean('show-panel-icon');
+        this._syncPolling();
+        this._render(this._controller.state);
+        void this._controller.refresh();
+    }
 
-  disable() {
-    this._indicator?.destroy();
-    this._indicator = null;
-  }
+    _syncPolling() {
+        this._controller.setPolling(this._settings.get_int('poll-interval-seconds'),
+            this._views.some(view => view.menu.isOpen));
+    }
+
+    _syncQuickMenuHeight() {
+        const menu = this._quick?.toggle.menu;
+        if (!menu?.isOpen) return;
+        const monitor = Main.layoutManager.findMonitorForActor(menu.sourceActor);
+        if (!monitor) return;
+        const [, y] = menu.sourceActor.get_transformed_position();
+        const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        // Leave room for the tile-to-menu gap and the outer Quick Settings padding.
+        // Scroll the whole dropdown so expanded submenus cannot squeeze individual
+        // controls below their usable height on a short screen.
+        const height = Math.max(1, Math.floor((monitor.y + monitor.height - y - menu.sourceActor.height) / scale - 40));
+        const style = `max-height: ${height}px;`;
+        if (this._quickScroll.get_style() !== style) this._quickScroll.set_style(style);
+    }
+
+    _revealQuickMenuFocus() {
+        const focus = global.stage.get_key_focus();
+        if (!this._quick.toggle.menu.isOpen || !focus || !this._quickScroll.contains(focus)) return;
+        const [, focusY] = focus.get_transformed_position();
+        const [, focusHeight] = focus.get_transformed_size();
+        let shift = 0;
+        for (let actor = focus.get_parent(); actor; actor = actor.get_parent()) {
+            if (actor instanceof St.ScrollView) {
+                const [, y] = actor.get_transformed_position();
+                const [, height] = actor.get_transformed_size();
+                const scale = height / actor.height || 1;
+                const top = focusY - shift - y;
+                const delta = top < 0 ? top : Math.max(0, top + focusHeight - height);
+                const adjustment = actor.get_vadjustment();
+                const previous = adjustment.value;
+                adjustment.value = Math.max(adjustment.lower,
+                    Math.min(adjustment.upper - adjustment.page_size, previous + delta / scale));
+                shift += (adjustment.value - previous) * scale;
+            }
+            if (actor === this._quickScroll) break;
+        }
+    }
+
+    _render(state) {
+        const info = STATES[state.status] ?? STATES.error;
+        for (const view of this._views) view.update(state);
+        const icon = stateIcon(state.status, this._logo);
+        this._panel.icon.gicon = icon;
+        // A dimmed mark means "not connected"; attention states keep full contrast.
+        this._panel.icon.opacity = info.connected || info.attention ? 255 : 128;
+        this._panel.accessible_name = `Twingate: ${info.label}`;
+        this._quick.toggle.checked = state.status === 'online';
+        this._quick.toggle.gicon = icon;
+        this._quick.toggle.subtitle = state.busy ? 'Working…' :
+            state.status === 'online' ? accountLabel(state.accounts) : info.label;
+        this._quick.icon.gicon = icon;
+        this._quick.icon.visible = !this._panel.visible && ['online', 'authenticating', 'error'].includes(state.status);
+        const previous = this._previousStatus;
+        // A reconnect passes through 'authenticating' briefly, so it is not remembered as a
+        // change; otherwise each network change would announce "Connected" again.
+        if (state.status !== 'authenticating') this._previousStatus = state.status;
+        // Extensions are re-enabled at every login and unlock; the first status read is not a change.
+        if (!previous || previous === 'unknown' || previous === state.status || state.busy ||
+            !this._settings.get_boolean('notifications-enabled'))
+            return;
+        if (state.status === 'online') Main.notify('Twingate', 'Connected to your private network');
+        else if (state.status === 'paused') Main.notify('Twingate', 'Connection paused');
+        else if (state.status === 'error') Main.notify('Twingate', 'Connection unavailable. Open Twingate to retry.');
+    }
+
+    _notice(text) {
+        for (const view of this._views) view.showNotice(text);
+    }
+
+    async _authenticateNotification(notification) {
+        const controller = this._controller;
+        if (!controller) return;
+        if (controller.state.busy) {
+            Main.notify('Twingate', 'Another Twingate action is in progress. Try Authenticate again when it finishes.');
+            return;
+        }
+        // The CLI initiates authentication directly, avoiding the notifier's dead
+        // action callback. The shared controller serializes this with menu actions.
+        const operation = controller.act('authenticateNotification', notification.body);
+        if (!notification.resident) notification.destroy();
+        let success = false;
+        try { success = await operation; } catch { /* Report an actionable error below. */ }
+        if (this._controller !== controller) return;
+        if (!success) {
+            Main.notify('Twingate', 'Resource authentication did not complete. Open Twingate to retry.');
+            if (this._panel.visible) this._panel.menu.open();
+            else {
+                this._quickSettingsMenu.open();
+                this._quick.toggle.menu.open();
+            }
+        }
+    }
+
+    _copyDiagnostics() {
+        const state = this._controller.state;
+        const text = [
+            `Twingate Panel ${this.metadata['version-name']}`,
+            `GNOME ${Config.PACKAGE_VERSION}`,
+            `Client: ${state.version || 'unavailable'}`,
+            `State: ${state.status}`,
+            `Capabilities: ${Object.entries(state.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(', ')}`,
+            `Status error: ${Boolean(state.error)}`,
+            `Action error: ${Boolean(state.actionError)}`,
+            `Resource refresh error: ${Boolean(state.resourceError)}`,
+            `Account refresh error: ${Boolean(state.accountError)}`,
+            `Routing refresh error: ${Boolean(state.exitError)}`,
+            'Account identities, resource addresses, command output, and tokens are excluded.',
+        ].join('\n');
+        St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+        this._notice('Diagnostics copied · private details excluded');
+    }
+
+    disable() {
+        this._notificationFilter?.clear();
+        this._notificationFilter = null;
+        if (this._settingsChanged) this._settings.disconnect(this._settingsChanged);
+        if (this._networkChanged) this._network.disconnect(this._networkChanged);
+        if (this._quickSettingsChanged) this._quickSettingsMenu.disconnect(this._quickSettingsChanged);
+        if (this._keyFocusChanged) global.stage.disconnect(this._keyFocusChanged);
+        this._controller?.dispose();
+        this._views?.forEach(view => view.destroy());
+        this._quick?.destroy();
+        this._panel?.destroy();
+        this._settingsChanged = this._networkChanged = this._quickSettingsChanged = 0;
+        this._keyFocusChanged = 0;
+        this._quick = this._quickScroll = this._panel = this._controller = this._client = null;
+        this._settings = this._network = this._quickSettingsMenu = this._logo = null;
+        this._views = [];
+    }
 }

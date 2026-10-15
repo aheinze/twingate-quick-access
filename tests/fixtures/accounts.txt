@@ -1,0 +1,3 @@
+EMAIL             	NETWORK 	NETWORK URL
+user@example.test	example	example.twingate.com
+

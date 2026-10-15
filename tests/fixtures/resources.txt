@@ -1,0 +1,3 @@
+RESOURCE NAME	ADDRESS       	ALIAS          	AUTH STATUS
+Example NAS 	192.0.2.10	nas.example.test	Pending
+
